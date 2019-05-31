@@ -883,6 +883,21 @@ namespace {
 	  {
 	      // Never assume anything on values stored in TT
 	      ss->staticEval = eval = expttValue;
+	      //update contempt based on expttValue begin
+	      // Adjust contempt based on expttValue (dynamic contempt)
+	      int ct = int(Options["Contempt"]) * PawnValueEg / 100; // From centipawns
+	      // In analysis mode, adjust contempt in accordance with user preference
+	      if (Limits.infinite || Options["UCI_AnalyseMode"])
+	          ct =  Options["Analysis Contempt"] == "Off"  ? 0
+	              : Options["Analysis Contempt"] == "Both" ? ct
+	              : Options["Analysis Contempt"] == "White" && us == BLACK ? -ct
+	              : Options["Analysis Contempt"] == "Black" && us == WHITE ? -ct
+	              : ct;
+	      int dct = ct + 88 * expttValue / (abs(expttValue) + 200);
+
+	      pos.this_thread()->contempt = (us == WHITE ?  make_score(dct, dct / 2)
+							      : -make_score(dct, dct / 2));
+	      //update contempt based on expttValue end
 	      if (eval == VALUE_NONE)
 		      ss->staticEval = eval = evaluate(pos);
       }
