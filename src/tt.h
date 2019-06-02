@@ -113,13 +113,12 @@ void EXPawnresize();
 void startposition();
 void EXPload(char* fen);
 
+void expBinLoad();
+void expPawnLoad();
+
 extern TranspositionTable EXP;
 
 
-void EXPresize();
-void EXPawnresize();
-void startposition();
-void EXPload(char* fen);
 void mctsInsert(ExpEntry tempExpEntry);
 
 const int MAX_CHILDREN = 25;

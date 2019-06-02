@@ -21,6 +21,7 @@
 #include <cstring>   // For std::memset
 #include <iostream>
 #include <thread>
+#include <cstring>   // For std::memset
 #include <fstream> //from kellykynyama mcts
 #include "bitboard.h"
 #include "misc.h"
@@ -196,6 +197,7 @@ void EXPresize() {
 			load = 0;
 	}
 	myFile.close();
+	expBinLoad();
 
 }
 void EXPawnresize() {
@@ -387,4 +389,140 @@ Node get_node(Key key) {
 	}
 	return mynode;
 }
+
+void expBinLoad()
+{
+	std::ofstream general("experience.bin", std::ofstream::app | std::ofstream::binary);
+	bool next=false;
+	for(int x=0; x < 100; x++)
+	{
+		std::string index = std::to_string(x);
+		ifstream myFile("experience"+index+".bin", ios::in | ios::binary);
+
+		if(next)
+			break;
+
+			int load = 1;
+			while (load)
+			{
+				ExpEntry tempExpEntry;
+				tempExpEntry.depth = Depth(0);
+				tempExpEntry.hashkey = 0;
+				tempExpEntry.move = Move(0);
+				tempExpEntry.score = Value(0);
+
+				myFile.read((char*)&tempExpEntry, sizeof(tempExpEntry));
+
+				if (tempExpEntry.hashkey)
+				{
+					Node node = get_node(tempExpEntry.hashkey);
+					if (tempExpEntry.hashkey != node->hashkey)
+					{
+						general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+												mctsInsert(tempExpEntry);
+					}
+					if (tempExpEntry.hashkey == node->hashkey
+						&& tempExpEntry.move == node->lateChild.move
+						&& tempExpEntry.depth > node->lateChild.depth
+						)
+					{
+						mctsInsert(tempExpEntry);
+					}
+					if (tempExpEntry.hashkey == node->hashkey
+						&& tempExpEntry.move != node->lateChild.move
+						&& tempExpEntry.score > node->lateChild.score
+						)
+					{
+						general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+						mctsInsert(tempExpEntry);
+					}
+
+
+
+				}
+				else
+					load = 0;
+
+
+
+				if (!tempExpEntry.hashkey)
+				{
+					next=true;
+					load = 0;
+				}
+			}
+			myFile.close();
+	}
+	expPawnLoad();
+
+}
+
+void expPawnLoad()
+{
+	bool next=false;
+	std::ofstream general("pawngame.bin", std::ofstream::app | std::ofstream::binary);
+
+		for(int x=0; x < 100; x++)
+		{
+			std::string index = std::to_string(x);
+			ifstream myFile("pawngame"+index+".bin", ios::in | ios::binary);
+
+			if(next)
+				break;
+
+				int load = 1;
+				while (load)
+				{
+					ExpEntry tempExpEntry;
+					tempExpEntry.depth = Depth(0);
+					tempExpEntry.hashkey = 0;
+					tempExpEntry.move = Move(0);
+					tempExpEntry.score = Value(0);
+
+					myFile.read((char*)&tempExpEntry, sizeof(tempExpEntry));
+
+					if (tempExpEntry.hashkey)
+					{
+						Node node = get_node(tempExpEntry.hashkey);
+						if (tempExpEntry.hashkey != node->hashkey)
+						{
+							general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+													mctsInsert(tempExpEntry);
+						}
+						if (tempExpEntry.hashkey == node->hashkey
+							&& tempExpEntry.move == node->lateChild.move
+							&& tempExpEntry.depth > node->lateChild.depth
+							)
+						{
+							mctsInsert(tempExpEntry);
+						}
+						if (tempExpEntry.hashkey == node->hashkey
+							&& tempExpEntry.move != node->lateChild.move
+							&& tempExpEntry.score > node->lateChild.score
+							)
+						{
+							general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+							mctsInsert(tempExpEntry);
+						}
+
+
+
+					}
+					else
+						load = 0;
+
+
+
+					if (!tempExpEntry.hashkey)
+					{
+						next=true;
+						load = 0;
+					}
+				}
+				myFile.close();
+		}
+
+}
+
+
 //from Kelly End
