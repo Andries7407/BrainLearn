@@ -86,16 +86,16 @@ namespace {
     //from Kelly begin
     int movesplayed = 0;
     int OPmoves = 0;
-	if (StartFEN != Newfen)
-	  {
-	      startposition = false;
-	      FileKey = pos.key();
-	  }
-	  else
-	  {
-	      startposition = true;
-	      FileKey = 0;
-	  }
+    if (StartFEN != Newfen)
+      {
+	  startposition = false;
+	  FileKey = pos.key();
+      }
+      else
+      {
+	  startposition = true;
+	  FileKey = 0;
+      }
     //from Kelly end
 
     // Parse move list (if any)
@@ -109,13 +109,13 @@ namespace {
 	    {
 		    files(OPmoves, pos.key());
 		    OPmoves++;
-		    kelly(startposition);
+		    setStartPoint(startposition);
 
 	    }
 	    if (movesplayed == 16 && Newfen == StartFEN)
 	    {
 		    FileKey = pos.key();
-		    kelly(startposition);
+		    setStartPoint(startposition);
 	    }
 	  }
 

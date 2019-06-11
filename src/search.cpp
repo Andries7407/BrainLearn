@@ -39,14 +39,12 @@
 #include "syzygy/tbprobe.h"
 //kelly begin
 bool useExp = true;
-bool expHits;
+bool enableExpProbe;
 int movesPlayed = 0;
 bool startPoint = false;
-int openingsWritten = 0;
-Key opFileKey[8];
-bool pawnEnding = false;
-int mySquare=0;
-bool updatedLearning;
+int openingVariationMoveWritten = 0;
+Key openingVariationMovesKeys[8];
+bool pawnGameLoaded = false;
 //kelly end
 namespace Search {
 
@@ -160,7 +158,7 @@ namespace {
 void Search::init() {
 
   for (int i = 1; i < MAX_MOVES; ++i)
-     Reductions[i] = int(22.9 * std::log(i));
+      Reductions[i] = int(22.9 * std::log(i));
 }
 
 
@@ -193,13 +191,13 @@ void MainThread::search() {
   Time.init(Limits, us, rootPos.game_ply());
   TT.new_search();
   //Kelly begin
-  expHits = false;
+  enableExpProbe = false;
   int piecesCnt = rootPos.count<KNIGHT>(WHITE) + rootPos.count<BISHOP>(WHITE) + rootPos.count<ROOK>(WHITE) + rootPos.count<QUEEN>(WHITE) + rootPos.count<KING>(WHITE)
 	  + rootPos.count<KNIGHT>(BLACK) + rootPos.count<BISHOP>(BLACK) + rootPos.count<ROOK>(BLACK) + rootPos.count<QUEEN>(BLACK) + rootPos.count<KING>(BLACK);
-  if (piecesCnt <= 8 && !pawnEnding)
+  if ((piecesCnt <= 8) && ((rootPos.count<PAWN>(WHITE)+rootPos.count<PAWN>(BLACK))>=1) && !pawnGameLoaded)
   {
-	  pawnEnding = true;
-	  EXPawnresize();
+	  pawnGameLoaded = true;
+	  expResize("pawngame");
   }
   if (piecesCnt <= 8)
   {
@@ -282,17 +280,13 @@ void MainThread::search() {
           minScore = std::min(minScore, th->rootMoves[0].score);
 
       // Vote according to score and depth, and select the best thread
-      int64_t bestVote = 0;
       for (Thread* th : Threads)
       {
           votes[th->rootMoves[0].pv[0]] +=
-               (th->rootMoves[0].score - minScore + 14) * int(th->completedDepth);
+              (th->rootMoves[0].score - minScore + 14) * int(th->completedDepth);
 
-          if (votes[th->rootMoves[0].pv[0]] > bestVote)
-          {
-              bestVote = votes[th->rootMoves[0].pv[0]];
+          if (votes[th->rootMoves[0].pv[0]] > votes[bestThread->rootMoves[0].pv[0]])
               bestThread = th;
-          }
       }
   }
 
@@ -301,46 +295,45 @@ void MainThread::search() {
   //kelly begin	
   if ((((movesPlayed <= 300) || (piecesCnt <= 6)) && (bestThread->completedDepth > 4 * ONE_PLY)))
   {
-	  std::ofstream general("experience.bin", std::ofstream::app | std::ofstream::binary);
-	  ExpEntry tempExpEntry;
-	  tempExpEntry.depth = bestThread->completedDepth;
-	  tempExpEntry.hashkey = rootPos.key();
-	  tempExpEntry.move = bestThread->rootMoves[0].pv[0];
-	  tempExpEntry.score = bestThread->rootMoves[0].score;
-	  if (movesPlayed <= 300 && startPoint &&  piecesCnt > 6)
-	  {
-		  general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
-	  }
-	  if (startPoint &&  piecesCnt > 6)
-	  {
-		  for (int x = 0; x < openingsWritten; x++)
-		  {
-			  string openings;
-			  char *opnings;
+    std::ofstream general("experience.bin", std::ofstream::app | std::ofstream::binary);
+    ExpEntry tempExpEntry;
+    tempExpEntry.depth = bestThread->completedDepth;
+    tempExpEntry.hashkey = rootPos.key();
+    tempExpEntry.move = bestThread->rootMoves[0].pv[0];
+    tempExpEntry.score = bestThread->rootMoves[0].score;
+    if (movesPlayed <= 300 && startPoint &&  piecesCnt > 6)
+    {
+	    general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+    }
+    if (startPoint &&  piecesCnt > 6)
+    {
+      for (int openingVariationMoveIndex = 0; openingVariationMoveIndex < openingVariationMoveWritten; openingVariationMoveIndex++)
+      {
+	string openingFileName;
+	char *openingFileNameArray;
 
-			  std::ostringstream ss;
-			  ss << opFileKey[x];
-			  openings = ss.str() + ".bin";
-			  opnings = new char[openings.length() + 1];
-			  std::strcpy(opnings, openings.c_str());
-			  std::ofstream myFile(opnings, std::ofstream::app | std::ofstream::binary);
-			  myFile.write((char*)&tempExpEntry, sizeof(tempExpEntry));
-			  myFile.close();
-		  }
-	  }
-	  if (piecesCnt <= 2)
-	  {
-		  std::ofstream pawngame("pawngame.bin", std::ofstream::app | std::ofstream::binary);
-		  pawngame.write((char*)&tempExpEntry, sizeof(tempExpEntry));
-		  pawngame.close();
-	  }
-	  movesPlayed++;
-
+	std::ostringstream ss;
+	ss << openingVariationMovesKeys[openingVariationMoveIndex];
+	openingFileName = ss.str() + ".bin";
+	openingFileNameArray = new char[openingFileName.length() + 1];
+	std::strcpy(openingFileNameArray, openingFileName.c_str());
+	std::ofstream myFile(openingFileNameArray, std::ofstream::app | std::ofstream::binary);
+	myFile.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+	myFile.close();
+      }
+    }
+    if (piecesCnt <= 2)
+    {
+	    std::ofstream pawngame("pawngame.bin", std::ofstream::app | std::ofstream::binary);
+	    pawngame.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+	    pawngame.close();
+    }
+    movesPlayed++;
   }
 
-  if (!expHits)
+  if (!enableExpProbe)
   {
-	  useExp = false;
+      useExp = false;
   }
   //Kelly end
   
@@ -620,21 +613,23 @@ namespace {
     StateInfo st;
     TTEntry* tte;
     Key posKey;
-    Move ttMove, move, excludedMove=MOVE_NONE, bestMove,expttMove=MOVE_NONE;//from Kelly
+    Move ttMove, move, excludedMove=MOVE_NONE, bestMove,expTTMove=MOVE_NONE;//from Kelly
     Depth extension, newDepth;
     //from Kelly begin
-    Value bestValue, value, ttValue, eval=VALUE_NONE, maxValue, expttValue=VALUE_NONE;
-    bool ttHit, ttPv, inCheck, givesCheck, improving, expttHit=false;
+    Value bestValue, value, ttValue, eval=VALUE_NONE, maxValue, expTTValue=VALUE_NONE;
+    bool ttHit, ttPv, inCheck, givesCheck, improving, expTTHit=false;
     //from Kelly End
     bool captureOrPromotion, doFullDepthSearch, moveCountPruning, ttCapture;
     Piece movedPiece;
-    int moveCount, captureCount, quietCount;
+    int moveCount, captureCount, quietCount, singularLMR;
+	
+	bool updatedLearning = false;
 
     // Step 1. Initialize node
     Thread* thisThread = pos.this_thread();
     inCheck = pos.checkers();
     Color us = pos.side_to_move();
-    moveCount = captureCount = quietCount = ss->moveCount = 0;
+    moveCount = captureCount = quietCount = singularLMR = ss->moveCount = 0;
     bestValue = -VALUE_INFINITE;
     maxValue = VALUE_INFINITE;
 
@@ -679,10 +674,10 @@ namespace {
     // starts with statScore = 0. Later grandchildren start with the last calculated
     // statScore of the previous grandchild. This influences the reduction rules in
     // LMR which are based on the statScore of parent position.
-	if (rootNode)
-		(ss + 4)->statScore = 0;
-	else
-		(ss + 2)->statScore = 0;
+    if (rootNode)
+        (ss + 4)->statScore = 0;
+    else
+        (ss + 2)->statScore = 0;
 
     // Step 4. Transposition table lookup. We don't want the score of a partial
     // search to overwrite a previous full search TT value, so we use a different
@@ -693,7 +688,7 @@ namespace {
     ttValue = ttHit ? value_from_tt(tte->value(), ss->ply) : VALUE_NONE;
     ttMove =  rootNode ? thisThread->rootMoves[thisThread->pvIdx].pv[0]
             : ttHit    ? tte->move() : MOVE_NONE;
-    ttPv = (ttHit && tte->is_pv()) || (PvNode && depth > 4 * ONE_PLY);
+    ttPv = PvNode || (ttHit && tte->is_pv());
 
     // At non-PV nodes we check for an early TT cutoff
     if (  !PvNode
@@ -726,73 +721,64 @@ namespace {
         return ttValue;
     }
 
-	//from Kelly begin
-	expttHit = false;
-	updatedLearning = false;
+    //from Kelly begin
+    expTTHit = false;
+    updatedLearning = false;
 
-      if (!excludedMove && useExp)
+    if (!excludedMove && useExp)
+    {
+      Node node = get_node(posKey);
+      if (node!=nullptr)
       {
-		Node node = get_node(posKey);
-		if (node!=nullptr)
-		{
-			Child child = node->child[0];
-			if (node->hashkey == posKey)
-			{
-				bool ttMovehave = false;
-				if (ttMove)
-					ttMovehave = true;
-				expHits = true;
-				expttHit = true;
-				Value myValue = -VALUE_INFINITE;
-				for (int x = 0; x < node->sons; x++)
-				{
-					int myTempSquare=0;
-					if (x == 0)
-					{
-					  mySquare = from_to(node->child[x].move);
-					}
-					else
-					  myTempSquare = from_to(node->child[x].move);
-					if (mySquare != myTempSquare && x>0)
-					{
-					  break;
-					}
-				}
-				if (node->lateChild.depth >= depth)
-				{
-					myValue = node->lateChild.score;
-					expttMove = node->lateChild.move;
-					expttHit = true;
-					expttValue = node->lateChild.score;
-					updatedLearning = true;
-					child = node->lateChild;
-					if (!ttMovehave)
-					{
-						ttMove = node->lateChild.move;
-					}
-					//thisThread->tbHits.fetch_add(1, std::memory_order_relaxed);
-				}
+	Child child = node->child[0];
+	if (node->hashkey == posKey)
+	{
+	  bool haveTTMove = false;
+	  if (ttMove)
+	    haveTTMove = true;
+	  enableExpProbe = true;
+	  expTTHit = true;
+	  if (node->lateChild.depth >= depth)
+	  {
+	    expTTMove = node->lateChild.move;
+	    expTTHit = true;
+	    expTTValue = node->lateChild.score;
+	    updatedLearning = true;
+	    child = node->lateChild;
+	    if (!haveTTMove)
+	    {
+		ttMove = node->lateChild.move;
+	    }
+	    //thisThread->tbHits.fetch_add(1, std::memory_order_relaxed);
+	  }
 
-				if (!PvNode && updatedLearning
-					&& child.depth >= depth
-					)
-				{
-					if (child.score >= beta)
-					{
-						if (!pos.capture_or_promotion(child.move))
-							update_quiet_stats(pos, ss, child.move, nullptr, 0, stat_bonus(depth));
+	  if (!PvNode && updatedLearning
+		  && child.depth >= depth
+		  )
+	  {
+	    if (child.score >= beta)
+	    {
+	      if (!pos.capture_or_promotion(child.move))
+		update_quiet_stats(pos, ss, child.move, nullptr, 0, stat_bonus(depth));
 
-						// Extra penalty for a quiet TT move in previous ply when it gets refuted
-						if ((ss - 1)->moveCount == 1 && !pos.captured_piece())
-							update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -stat_bonus(depth + ONE_PLY));
-					}
-					return myValue;
-				}
-			}
+	      // Extra penalty for a quiet TT move in previous ply when it gets refuted
+	      if ((ss - 1)->moveCount == 1 && !pos.captured_piece())
+		update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -stat_bonus(depth + ONE_PLY));
+	    }
+            // Penalty for a quiet ttMove that fails low
+            else if (!pos.capture_or_promotion(expTTMove))
+            {
+                int penalty = -stat_bonus(depth);
+                thisThread->mainHistory[us][from_to(expTTMove)] << penalty;
+                update_continuation_histories(ss, pos.moved_piece(expTTMove), to_sq(expTTMove), penalty);
+            }
+	    return expTTValue;
+	  }
+	}
 
-		}
-	}	
-
+      }
+    }
+    //from Kelly end
     // Step 5. Tablebases probe
     if (!rootNode && TB::Cardinality)
     {
@@ -865,29 +851,32 @@ namespace {
     }
     else
     {
-      //from kelly begin	
-      if (!(expttHit)|| !(updatedLearning))
+      //from kelly begin
+      if (!(expTTHit)|| !(updatedLearning))
       {
-	      if ((ss-1)->currentMove != MOVE_NULL)
-	      {
-		      int bonus = -(ss-1)->statScore / 512;
+	if ((ss-1)->currentMove != MOVE_NULL)
+	{
+	    int bonus = -(ss-1)->statScore / 512;
 
-      ss->staticEval = eval = evaluate(pos) + bonus;
-	      }
-	      else{
-		  ss->staticEval = eval = -(ss-1)->staticEval + 2 * Eval::Tempo;
-	      }
-	      tte->save(posKey, VALUE_NONE, ttPv, BOUND_NONE, DEPTH_NONE, MOVE_NONE, eval);
-      }      
+	    ss->staticEval = eval = evaluate(pos) + bonus;
+	}
+	else{
+	    ss->staticEval = eval = -(ss-1)->staticEval + 2 * Eval::Tempo;
+	}
+	tte->save(posKey, VALUE_NONE, ttPv, BOUND_NONE, DEPTH_NONE, MOVE_NONE, eval);
+      }
       else
-	  {
-	      // Never assume anything on values stored in TT
-	      ss->staticEval = eval = expttValue;
-	      if (eval == VALUE_NONE)
-		      ss->staticEval = eval = evaluate(pos);
+      {
+	// Never assume anything on values stored in TT
+	ss->staticEval = eval = expTTValue;
+	if (eval == VALUE_NONE)
+	  ss->staticEval = eval = evaluate(pos);
+	if(expTTValue != VALUE_NONE)
+	  eval = expTTValue;
       }
       //from Kelly end
     }
+
 
     // Step 7. Razoring (~2 Elo)
     if (   !rootNode // The required rootNode PV handling is not available in qsearch
@@ -1018,9 +1007,8 @@ moves_loop: // When in check, search starts from here
 
     value = bestValue; // Workaround a bogus 'uninitialized' warning under gcc
     moveCountPruning = false;
-	bool SE = false;//from Kelly
+    bool isSingularExtension = false;//from Kelly
     ttCapture = ttMove && pos.capture_or_promotion(ttMove);
-    int singularExtensionLMRmultiplier = 0;
 
     // Step 12. Loop through all pseudo-legal moves until no moves remain
     // or a beta cutoff occurs.
@@ -1077,19 +1065,21 @@ moves_loop: // When in check, search starts from here
           ss->excludedMove = MOVE_NONE;
 
           if (value < singularBeta)
-	      {
+	  {
               extension = ONE_PLY;
-              singularExtensionLMRmultiplier++;
+              singularLMR++;
+
               if (value < singularBeta - std::min(3 * depth / ONE_PLY, 39))
-              	  singularExtensionLMRmultiplier++;
-              	      
-		      //from Kelly begin
-		      if (expttHit && move == expttMove)
-		      {
-			      SE = true;
-		      }
-		      //from Kelly end
+              {
+        	  singularLMR++;
+              }
+	      //from Kelly begin
+	      if (expTTHit && move == expTTMove)
+	      {
+		  isSingularExtension = true;
 	      }
+	      //from Kelly end
+	  }
           // Multi-cut pruning
           // Our ttMove is assumed to fail high, and now we failed high also on a reduced
           // search without the ttMove. So we assume this expected Cut-node is not singular,
@@ -1134,19 +1124,19 @@ moves_loop: // When in check, search starts from here
 
           if (   !captureOrPromotion
               && !givesCheck
-              && !pos.advanced_pawn_push(move))
+              && (!pos.advanced_pawn_push(move) || pos.non_pawn_material(~us) > BishopValueMg))
           {
               // Move count based pruning (~30 Elo)
               if (moveCountPruning)
-			  //from Kelly begin
-				{
+		//from Kelly begin
+		{
                   continue;
-				}
-	      	  if (SE && moveCount > 1)
-				{
-		  			continue;
-				}
-			  //from Kelly end
+		}
+	      	if (isSingularExtension && moveCount > 1)
+	      	  {
+	      	    continue;
+		  }
+		//from Kelly end
 			  
               // Reduced depth of the next LMR search
               int lmrDepth = std::max(newDepth - reduction(improving, depth, moveCount), DEPTH_ZERO);
@@ -1168,7 +1158,8 @@ moves_loop: // When in check, search starts from here
               if (!pos.see_ge(move, Value(-29 * lmrDepth * lmrDepth)))
                   continue;
           }
-          else if (!pos.see_ge(move, -PawnValueEg * (depth / ONE_PLY))) // (~20 Elo)
+          else if ((!givesCheck || !(pos.blockers_for_king(~us) & from_sq(move)))
+                  && !pos.see_ge(move, -PawnValueEg * (depth / ONE_PLY))) // (~20 Elo)
                   continue;
       }
 
@@ -1207,7 +1198,7 @@ moves_loop: // When in check, search starts from here
           if ((ss-1)->moveCount > 15)
               r -= ONE_PLY;
           // Decrease reduction if move has been singularly extended
-          r -= singularExtensionLMRmultiplier * ONE_PLY;
+          r -= singularLMR * ONE_PLY;
 
           if (!captureOrPromotion)
           {
@@ -1243,7 +1234,7 @@ moves_loop: // When in check, search starts from here
               r -= ss->statScore / 20000 * ONE_PLY;
           }
 
-          Depth d = std::max(newDepth - std::max(r, DEPTH_ZERO), ONE_PLY);
+          Depth d = clamp(newDepth - r, ONE_PLY, newDepth);
 
           value = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, d, true);
 
@@ -1549,6 +1540,7 @@ moves_loop: // When in check, search starts from here
 
       // Don't search moves with negative SEE values
       if (  (!inCheck || evasionPrunable)
+          && (!givesCheck || !(pos.blockers_for_king(~pos.side_to_move()) & from_sq(move)))
           && !pos.see_ge(move))
           continue;
 
@@ -1659,7 +1651,7 @@ moves_loop: // When in check, search starts from here
   void update_capture_stats(const Position& pos, Move move,
                             Move* captures, int captureCount, int bonus) {
 
-      CapturePieceToHistory& captureHistory =  pos.this_thread()->captureHistory;
+      CapturePieceToHistory& captureHistory = pos.this_thread()->captureHistory;
       Piece moved_piece = pos.moved_piece(move);
       PieceType captured = type_of(pos.piece_on(to_sq(move)));
 
@@ -1898,24 +1890,17 @@ void Tablebases::rank_root_moves(Position& pos, Search::RootMoves& rootMoves) {
         if (dtz_available || rootMoves[0].tbScore <= VALUE_DRAW)
             Cardinality = 0;
     }
-    else
-    {
-        // Assign the same rank to all moves
-        for (auto& m : rootMoves)
-            m.tbRank = 0;
-    }
 }
 
-void kelly(bool start)
+void setStartPoint(bool start)
 {
 	startPoint = start;
 }
 
 void files(int x, Key FileKey)
 {
-	EXP.new_search();
 	useExp = true;
-	opFileKey[x] = FileKey;
+	openingVariationMovesKeys[x] = FileKey;
 	if (FileKey)
 	{
 		string openings;
@@ -1926,7 +1911,7 @@ void files(int x, Key FileKey)
 		openings = ss.str() + ".bin";
 		opnings = new char[openings.length() + 1];
 		std::strcpy(opnings, openings.c_str());
-		EXPload(opnings);
-		openingsWritten = x;
+		expOpeningsLoad(opnings);
+		openingVariationMoveWritten = x;
 	}
 }

@@ -208,8 +208,8 @@ constexpr Bitboard pawn_double_attacks_bb(Bitboard b) {
 /// adjacent_files_bb() returns a bitboard representing all the squares on the
 /// adjacent files of the given one.
 
-inline Bitboard adjacent_files_bb(File f) {
-  return shift<EAST>(FileBB[f]) | shift<WEST>(FileBB[f]);
+inline Bitboard adjacent_files_bb(Square s) {
+  return shift<EAST>(file_bb(s)) | shift<WEST>(file_bb(s));
 }
 
 
@@ -247,7 +247,7 @@ inline Bitboard forward_file_bb(Color c, Square s) {
 ///      PawnAttackSpan[c][s] = forward_ranks_bb(c, s) & adjacent_files_bb(file_of(s));
 
 inline Bitboard pawn_attack_span(Color c, Square s) {
-  return PawnAttackSpan[c][s];
+  return forward_ranks_bb(c, s) & adjacent_files_bb(s);
 }
 
 
@@ -256,7 +256,7 @@ inline Bitboard pawn_attack_span(Color c, Square s) {
 ///      PassedPawnMask[c][s] = pawn_attack_span(c, s) | forward_file_bb(c, s)
 
 inline Bitboard passed_pawn_span(Color c, Square s) {
-  return PassedPawnMask[c][s];
+  return forward_ranks_bb(c, s) & (adjacent_files_bb(s) | file_bb(s));
 }
 
 

@@ -32,9 +32,7 @@
 //from Kelly Begin
 using namespace std;
 
-TranspositionTable EXP; // Our global transposition table
-
-MCTSHashTable MCTS;
+MCTSHashTable mctsHT;
 //from Kelly end
 
 TranspositionTable TT; // Our global transposition table
@@ -52,15 +50,16 @@ void TTEntry::save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev) 
 
   // Overwrite less valuable entries
   if (  (k >> 48) != key16
-      || d / ONE_PLY + 10 > depth8
+      ||(d - DEPTH_OFFSET) / ONE_PLY > depth8 - 4
       || b == BOUND_EXACT)
   {
+      assert((d - DEPTH_OFFSET) / ONE_PLY >= 0);
+
       key16     = (uint16_t)(k >> 48);
       value16   = (int16_t)v;
       eval16    = (int16_t)ev;
       genBound8 = (uint8_t)(TT.generation8 | uint8_t(pv) << 2 | b);
-      assert((d - DEPTH_NONE) / ONE_PLY >= 0);
-      depth8    = (uint8_t)((d - DEPTH_NONE) / ONE_PLY);
+      depth8    = (uint8_t)((d - DEPTH_OFFSET) / ONE_PLY);
   }
 }
 
@@ -167,70 +166,37 @@ int TranspositionTable::hashfull() const {
   return cnt * 1000 / (ClusterSize * (1000 / ClusterSize));
 }
 //from Kelly begin
-void EXPresize() {
+void expResize(std::string fileName) {
 
-	ifstream myFile("experience.bin", ios::in | ios::binary);
+    ifstream myFile(fileName+".bin", ios::in | ios::binary);
+    int load = 1;
+    while (load)
+    {
+	    ExpEntry tempExpEntry;
+	    tempExpEntry.depth = Depth(0);
+	    tempExpEntry.hashkey = 0;
+	    tempExpEntry.move = Move(0);
+	    tempExpEntry.score = Value(0);
 
+	    myFile.read((char*)&tempExpEntry, sizeof(tempExpEntry));
 
-	int load = 1;
-	while (load)
-	{
-		ExpEntry tempExpEntry;
-		tempExpEntry.depth = Depth(0);
-		tempExpEntry.hashkey = 0;
-		tempExpEntry.move = Move(0);
-		tempExpEntry.score = Value(0);
+	    if (tempExpEntry.hashkey)
+	    {
 
-		myFile.read((char*)&tempExpEntry, sizeof(tempExpEntry));
-
-		if (tempExpEntry.hashkey)
-		{
-
-			mctsInsert(tempExpEntry);
-		}
-		else
-			load = 0;
+		    mctsInsert(tempExpEntry);
+	    }
+	    else
+		    load = 0;
 
 
 
-		if (!tempExpEntry.hashkey)
-			load = 0;
-	}
-	myFile.close();
-	expBinLoad();
-
+	    if (!tempExpEntry.hashkey)
+		    load = 0;
+    }
+    myFile.close();
 }
-void EXPawnresize() {
 
-	ifstream myFile("pawngame.bin", ios::in | ios::binary);
-
-
-	int load = 1;
-	while (load)
-	{
-		ExpEntry tempExpEntry;
-		tempExpEntry.depth = Depth(0);
-		tempExpEntry.hashkey = 0;
-		tempExpEntry.move = Move(0);
-		tempExpEntry.score = Value(0);
-
-		myFile.read((char*)&tempExpEntry, sizeof(tempExpEntry));
-
-		if (tempExpEntry.hashkey)
-		{
-			mctsInsert(tempExpEntry);
-		}
-		else
-			load = 0;
-
-
-		if (!tempExpEntry.hashkey)
-			load = 0;
-	}
-	myFile.close();
-
-}
-void EXPload(char* fen)
+void expOpeningsLoad(char* fen)
 {
 
 	ifstream myFile(fen, ios::in | ios::binary);
@@ -266,7 +232,7 @@ void mctsInsert(ExpEntry tempExpEntry)
 {
 	// If the node already exists in the hash table, we want to return it.
 	// We search in the range of all the hash table entries with key "key1".
-	auto range = MCTS.equal_range(tempExpEntry.hashkey);
+	auto range = mctsHT.equal_range(tempExpEntry.hashkey);
 	auto it1 = range.first;
 	auto it2 = range.second;
 
@@ -346,7 +312,7 @@ void mctsInsert(ExpEntry tempExpEntry)
 
 										 //debug << "inserting into the hash table: key = " << key1 << endl;
 
-		MCTS.insert(make_pair(tempExpEntry.hashkey, infos));
+		mctsHT.insert(make_pair(tempExpEntry.hashkey, infos));
 	}
 }
 
@@ -360,14 +326,14 @@ Node get_node(Key key) {
 	// We search in the range of all the hash table entries with key "key1".
 
 	Node mynode = nullptr;
-	auto range = MCTS.equal_range(key);
+	auto range = mctsHT.equal_range(key);
 	auto it1 = range.first;
 	auto it2 = range.second;
 
 	if (
-		it1 != MCTS.end()
+		it1 != mctsHT.end()
 		&& 
-		it2 != MCTS.end()
+		it2 != mctsHT.end()
 		)
 	{
 
@@ -376,7 +342,7 @@ Node get_node(Key key) {
 		while (
 			it1 != it2
 			&&
-			it1 != MCTS.end()
+			it1 != mctsHT.end()
 			)
 		{
 			Node node = &(it1->second);
@@ -390,139 +356,72 @@ Node get_node(Key key) {
 	return mynode;
 }
 
-void expBinLoad()
+void loadLearningFiles(std::string fileName)
 {
-	std::ofstream general("experience.bin", std::ofstream::app | std::ofstream::binary);
-	bool next=false;
-	for(int x=0; x < 100; x++)
+    std::ofstream master (fileName+".bin",
+			std::ofstream::app | std::ofstream::binary);
+    bool merging=true;
+    int i=0;
+    while (merging)
+    {
+      std::string index = std::to_string(i);
+      std::string slaveName = fileName + index + ".bin";
+      ifstream slave (slaveName, ios::in | ios::binary);
+      if(!slave.good())
+      {
+	  merging=false;
+	  i++;
+      }
+      else
+      {
+	while(slave.good())
 	{
-		std::string index = std::to_string(x);
-		ifstream myFile("experience"+index+".bin", ios::in | ios::binary);
+	    ExpEntry tempExpEntry;
+	    tempExpEntry.depth = Depth(0);
+	    tempExpEntry.hashkey = 0;
+	    tempExpEntry.move = Move(0);
+	    tempExpEntry.score = Value(0);
 
-		if(next)
-			break;
-
-			int load = 1;
-			while (load)
-			{
-				ExpEntry tempExpEntry;
-				tempExpEntry.depth = Depth(0);
-				tempExpEntry.hashkey = 0;
-				tempExpEntry.move = Move(0);
-				tempExpEntry.score = Value(0);
-
-				myFile.read((char*)&tempExpEntry, sizeof(tempExpEntry));
-
-				if (tempExpEntry.hashkey)
-				{
-					Node node = get_node(tempExpEntry.hashkey);
-					if (tempExpEntry.hashkey != node->hashkey)
-					{
-						general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
-												mctsInsert(tempExpEntry);
-					}
-					if (tempExpEntry.hashkey == node->hashkey
-						&& tempExpEntry.move == node->lateChild.move
-						&& tempExpEntry.depth > node->lateChild.depth
-						)
-					{
-						mctsInsert(tempExpEntry);
-					}
-					if (tempExpEntry.hashkey == node->hashkey
-						&& tempExpEntry.move != node->lateChild.move
-						&& tempExpEntry.score > node->lateChild.score
-						)
-					{
-						general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
-						mctsInsert(tempExpEntry);
-					}
-
-
-
-				}
-				else
-					load = 0;
-
-
-
-				if (!tempExpEntry.hashkey)
-				{
-					next=true;
-					load = 0;
-				}
-			}
-			myFile.close();
-	}
-	expPawnLoad();
-
-}
-
-void expPawnLoad()
-{
-	bool next=false;
-	std::ofstream general("pawngame.bin", std::ofstream::app | std::ofstream::binary);
-
-		for(int x=0; x < 100; x++)
+	    slave.read((char*)&tempExpEntry, sizeof(tempExpEntry));
+	    if (tempExpEntry.hashkey)
+	    {
+	      Node node = get_node(tempExpEntry.hashkey);
+	      if ((node==nullptr) || tempExpEntry.hashkey != node->hashkey)
+	      {
+		  master.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+		  mctsInsert(tempExpEntry);
+	      }
+	      if(node!=nullptr)
+	      {
+		if (tempExpEntry.hashkey == node->hashkey
+			&& tempExpEntry.move == node->lateChild.move
+			&& tempExpEntry.depth > node->lateChild.depth
+			)
 		{
-			std::string index = std::to_string(x);
-			ifstream myFile("pawngame"+index+".bin", ios::in | ios::binary);
-
-			if(next)
-				break;
-
-				int load = 1;
-				while (load)
-				{
-					ExpEntry tempExpEntry;
-					tempExpEntry.depth = Depth(0);
-					tempExpEntry.hashkey = 0;
-					tempExpEntry.move = Move(0);
-					tempExpEntry.score = Value(0);
-
-					myFile.read((char*)&tempExpEntry, sizeof(tempExpEntry));
-
-					if (tempExpEntry.hashkey)
-					{
-						Node node = get_node(tempExpEntry.hashkey);
-						if (tempExpEntry.hashkey != node->hashkey)
-						{
-							general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
-													mctsInsert(tempExpEntry);
-						}
-						if (tempExpEntry.hashkey == node->hashkey
-							&& tempExpEntry.move == node->lateChild.move
-							&& tempExpEntry.depth > node->lateChild.depth
-							)
-						{
-							mctsInsert(tempExpEntry);
-						}
-						if (tempExpEntry.hashkey == node->hashkey
-							&& tempExpEntry.move != node->lateChild.move
-							&& tempExpEntry.score > node->lateChild.score
-							)
-						{
-							general.write((char*)&tempExpEntry, sizeof(tempExpEntry));
-							mctsInsert(tempExpEntry);
-						}
-
-
-
-					}
-					else
-						load = 0;
-
-
-
-					if (!tempExpEntry.hashkey)
-					{
-						next=true;
-						load = 0;
-					}
-				}
-				myFile.close();
+		  mctsInsert(tempExpEntry);
 		}
+		if (tempExpEntry.hashkey == node->hashkey
+			&& tempExpEntry.move != node->lateChild.move
+			&& tempExpEntry.score > node->lateChild.score
+			)
+		{
+		  master.write((char*)&tempExpEntry, sizeof(tempExpEntry));
+		  mctsInsert(tempExpEntry);
+		}
+	      }
+	    }
+	    else
+	    {
+		slave.close();
+		char slaveStr[slaveName.size() + 1];
+		strcpy(slaveStr, slaveName.c_str());
+		remove(slaveStr);
+		i++;
+	    }
+	}
+      }
 
+    }
+    master.close();
 }
-
-
 //from Kelly End

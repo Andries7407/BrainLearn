@@ -88,24 +88,24 @@ namespace Endgames {
 
   void init() {
 
-      add<KPK>("KPK");
-      add<KNNK>("KNNK");
-      add<KBNK>("KBNK");
-      add<KRKP>("KRKP");
-      add<KRKB>("KRKB");
-      add<KRKN>("KRKN");
-      add<KQKP>("KQKP");
-      add<KQKR>("KQKR");
-      add<KNNKP>("KNNKP");
+    add<KPK>("KPK");
+    add<KNNK>("KNNK");
+    add<KBNK>("KBNK");
+    add<KRKP>("KRKP");
+    add<KRKB>("KRKB");
+    add<KRKN>("KRKN");
+    add<KQKP>("KQKP");
+    add<KQKR>("KQKR");
+    add<KNNKP>("KNNKP");
 
-      add<KNPK>("KNPK");
-      add<KNPKB>("KNPKB");
-      add<KRPKR>("KRPKR");
-      add<KRPKB>("KRPKB");
-      add<KBPKB>("KBPKB");
-      add<KBPKN>("KBPKN");
-      add<KBPPKB>("KBPPKB");
-      add<KRPPKRP>("KRPPKRP");
+    add<KNPK>("KNPK");
+    add<KNPKB>("KNPKB");
+    add<KRPKR>("KRPKR");
+    add<KRPKB>("KRPKB");
+    add<KBPKB>("KBPKB");
+    add<KBPKN>("KBPKN");
+    add<KBPPKB>("KBPPKB");
+    add<KRPPKRP>("KRPPKRP");
   }
 }
 
