@@ -265,7 +265,7 @@ void Bitboards::init() {
       for (Square s = SQ_A1; s <= SQ_H8; ++s)
       {
           ForwardFileBB [c][s] = ForwardRanksBB[c][rank_of(s)] & FileBB[file_of(s)];
-          PawnAttackSpan[c][s] = ForwardRanksBB[c][rank_of(s)] & adjacent_files_bb(file_of(s));
+          PawnAttackSpan[c][s] = ForwardRanksBB[c][rank_of(s)] & adjacent_files_bb(s);
           PassedPawnMask[c][s] = ForwardFileBB [c][s] | PawnAttackSpan[c][s];
       }
 

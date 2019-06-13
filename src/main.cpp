@@ -39,12 +39,21 @@ int main(int argc, char* argv[]) {
   std::cout << engine_info() << std::endl;
 
   UCI::init(Options);
+  //from Kelly begin
+  expResize("experience");
+  loadLearningFiles("experience");
+  expResize("pawngame");
+  loadLearningFiles("pawngame");
+  mctsHT.clear();
+  expResize("experience");
+  //from Kelly end
   PSQT::init();
   Bitboards::init();
   Position::init();
   Bitbases::init();
-  Search::init();
   Endgames::init();
+  Search::init();
+
   Threads.set(Options["Threads"]);
   polybook.init(Options["BookFile"]);
   polybook2.init(Options["BookFile2"]);

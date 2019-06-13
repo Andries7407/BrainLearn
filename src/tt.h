@@ -41,7 +41,7 @@ struct TTEntry {
   Move  move()  const { return (Move )move16; }
   Value value() const { return (Value)value16; }
   Value eval()  const { return (Value)eval16; }
-  Depth depth() const { return (Depth)(depth8 * int(ONE_PLY)) + DEPTH_NONE; }
+  Depth depth() const { return (Depth)(depth8 * int(ONE_PLY)) + DEPTH_OFFSET; }
   bool is_pv() const { return (bool)(genBound8 & 0x4); }
   Bound bound() const { return (Bound)(genBound8 & 0x3); }
   void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev);
@@ -102,24 +102,18 @@ private:
 //from Kelly begin
 struct ExpEntry
 {
-	uint64_t hashkey;
+	uint64_t hashKey;
 	Depth depth;
 	Value score;
 	Move move;
 };
 
-void EXPresize();
-void EXPawnresize();
+void expResize(std::string fileName);
 void startposition();
-void EXPload(char* fen);
+void expOpeningsLoad(char* fen);
 
-extern TranspositionTable EXP;
+void loadLearningFiles(std::string fileName);
 
-
-void EXPresize();
-void EXPawnresize();
-void startposition();
-void EXPload(char* fen);
 void mctsInsert(ExpEntry tempExpEntry);
 
 const int MAX_CHILDREN = 25;
@@ -134,7 +128,7 @@ struct Child
 
 struct NodeInfo
 {
-	Key hashkey;
+	Key hashKey;
 	Child child[20];
 	Child lateChild;
 	int sons;
@@ -146,7 +140,7 @@ Node get_node(Key key);
 // The Monte-Carlo tree is stored implicitly in one big hash table
 typedef std::unordered_multimap<Key, NodeInfo> MCTSHashTable;
 
-extern MCTSHashTable MCTS;
+extern MCTSHashTable mctsHT;
 //from Kelly end
 
 extern TranspositionTable TT;

@@ -49,31 +49,31 @@ namespace {
   // following move list ("moves").
   
   //from kelly begin
-  bool startposition = false;
-  Key FileKey = 0;
+  bool startPosition = false;
+  Key fileKey = 0;
   //from Kelly end
   
   void position(Position& pos, istringstream& is, StateListPtr& states) {
 
     Move m;
     string token, fen;
-    string Newfen; //from Kelly
+    string newFen; //from Kelly
     is >> token;
 
     if (token == "startpos")
     {
       //from Kelly begin
-	  startposition = true;
+	  startPosition = true;
       fen = StartFEN;
-	  Newfen = fen;
+	  newFen = fen;
       is >> token; // Consume "moves" token if any
       //from Kelly end
     }
     else if (token == "fen")
     {
     	//from Kelly begin
-		startposition = false;
-		Newfen = token;
+		startPosition = false;
+		newFen = token;
       	while (is >> token && token != "moves")
 	      fen += token + " ";
 	    //from Kelly end
@@ -84,18 +84,18 @@ namespace {
     states = StateListPtr(new std::deque<StateInfo>(1)); // Drop old and create a new one
     pos.set(fen, Options["UCI_Chess960"], &states->back(), Threads.main());
     //from Kelly begin
-    int movesplayed = 0;
-    int OPmoves = 0;
-	if (StartFEN != Newfen)
-	  {
-	      startposition = false;
-	      FileKey = pos.key();
-	  }
-	  else
-	  {
-	      startposition = true;
-	      FileKey = 0;
-	  }
+    int movesPlayedPosition = 0;
+    int opMoves = 0;
+    if (StartFEN != newFen)
+      {
+	      startPosition = false;
+	      fileKey = pos.key();
+      }
+      else
+      {
+	      startPosition = true;
+	      fileKey = 0;
+      }
     //from Kelly end
 
     // Parse move list (if any)
@@ -103,24 +103,24 @@ namespace {
     {
         states->emplace_back();
 	  //from Kelly begin	
-	  if (!FileKey)
+	  if (!fileKey)
 	  {
-	    if ((movesplayed == 2 || movesplayed == 4 || movesplayed == 6 || movesplayed == 8 || movesplayed == 10 || movesplayed == 12 || movesplayed == 14 || movesplayed == 16) && Newfen == StartFEN)
+	    if ((movesPlayedPosition == 2 || movesPlayedPosition == 4 || movesPlayedPosition == 6 || movesPlayedPosition == 8 || movesPlayedPosition == 10 || movesPlayedPosition == 12 || movesPlayedPosition == 14 || movesPlayedPosition == 16) && newFen == StartFEN)
 	    {
-		    files(OPmoves, pos.key());
-		    OPmoves++;
-		    kelly(startposition);
+		    files(opMoves, pos.key());
+		    opMoves++;
+		    setStartPoint(startPosition);
 
 	    }
-	    if (movesplayed == 16 && Newfen == StartFEN)
+	    if (movesPlayedPosition == 16 && newFen == StartFEN)
 	    {
-		    FileKey = pos.key();
-		    kelly(startposition);
+		    fileKey = pos.key();
+		    setStartPoint(startPosition);
 	    }
 	  }
 
         pos.do_move(m, states->back());
-        movesplayed++;
+        movesPlayedPosition++;
     }//from Kelly end
   }
 

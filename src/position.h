@@ -30,7 +30,7 @@
 #include "types.h"
 
 //kelly patch begin
-extern void kelly(bool start);
+extern void setStartPoint(bool start);
 extern void files(int x, Key FileKey);
 //kelly patch end
 
