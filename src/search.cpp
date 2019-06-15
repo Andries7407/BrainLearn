@@ -112,7 +112,7 @@ namespace {
   };
 
   template <NodeType NT>
-  Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode);
+  Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode, bool windowSet, Value eAlpha, Value eBeta);
 
   template <NodeType NT>
   Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth = DEPTH_ZERO);
@@ -454,7 +454,7 @@ void Thread::search() {
           while (true)
           {
               Depth adjustedDepth = std::max(ONE_PLY, rootDepth - failedHighCnt * ONE_PLY);
-              bestValue = ::search<PV>(rootPos, ss, alpha, beta, adjustedDepth, false);
+              bestValue = ::search<PV>(rootPos, ss, alpha, beta, adjustedDepth, false, false, -VALUE_INFINITE, VALUE_INFINITE);
 
               // Bring the best move to the front. It is critical that sorting
               // is done with a stable algorithm because all the values but the
@@ -582,7 +582,7 @@ namespace {
   // search<>() is the main search function for both PV and non-PV nodes
 
   template <NodeType NT>
-  Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode) {
+  Value search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, bool cutNode, bool windowSet, Value eAlpha, Value eBeta) {
 
     constexpr bool PvNode = NT == PV;
     const bool rootNode = PvNode && ss->ply == 0;
@@ -744,7 +744,21 @@ namespace {
 	    expTTHit = true;
 	    expTTValue = node->lateChild.score;
 	    updatedLearning = true;
+		
 	    child = node->lateChild;
+		if(windowSet)
+		{
+			if(expTTValue > eBeta)
+				eBeta = expTTValue;
+			if(expTTValue < eAlpha)
+				eAlpha = expTTValue;
+		}
+		else
+		{
+			windowSet = true;
+			eAlpha = expTTValue;
+			eBeta = eAlpha + 1;
+		}
 	    if (!haveTTMove)
 	    {
 		ttMove = node->lateChild.move;
@@ -759,19 +773,19 @@ namespace {
 	    if (child.score >= beta)
 	    {
 	      if (!pos.capture_or_promotion(child.move))
-		update_quiet_stats(pos, ss, child.move, nullptr, 0, stat_bonus(depth));
+			 update_quiet_stats(pos, ss, child.move, nullptr, 0, stat_bonus(depth));
 
 	      // Extra penalty for a quiet TT move in previous ply when it gets refuted
 	      if ((ss - 1)->moveCount == 1 && !pos.captured_piece())
-		update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -stat_bonus(depth + ONE_PLY));
+			 update_continuation_histories(ss - 1, pos.piece_on(prevSq), prevSq, -stat_bonus(depth + ONE_PLY));
 	    }
-            // Penalty for a quiet ttMove that fails low
-            else if (!pos.capture_or_promotion(expTTMove))
-            {
-                int penalty = -stat_bonus(depth);
-                thisThread->mainHistory[us][from_to(expTTMove)] << penalty;
-                update_continuation_histories(ss, pos.moved_piece(expTTMove), to_sq(expTTMove), penalty);
-            }
+        // Penalty for a quiet ttMove that fails low
+        else if (!pos.capture_or_promotion(expTTMove))
+        {
+            int penalty = -stat_bonus(depth);
+            thisThread->mainHistory[us][from_to(expTTMove)] << penalty;
+            update_continuation_histories(ss, pos.moved_piece(expTTMove), to_sq(expTTMove), penalty);
+        }
 	    return expTTValue;
 	  }
 	}
@@ -779,6 +793,41 @@ namespace {
       }
     }
     //from Kelly end
+	Move SEmove = MOVE_NONE;
+	
+	if (  !rootNode
+		&& windowSet
+        && ttHit
+        && tte->depth() >= depth
+        && ttValue != VALUE_NONE // Possible in case of TT access race
+    //  && (ttValue >= eBeta  && (tte->bound() & BOUND_LOWER))
+	//	&& (ttValue <= eAlpha && (tte->bound() & BOUND_UPPER))
+		)
+    {
+		if(ttValue >= eAlpha  && (tte->bound() & BOUND_LOWER)
+			&& ttValue > alpha
+		)
+		{
+			if(ttMove)
+				SEmove = ttMove;
+		}
+		if(ttValue < eAlpha  && (tte->bound() & BOUND_UPPER)
+			&& ttValue < alpha
+		)
+		{
+			// Penalty for a quiet ttMove that fails low
+			if(ttMove)
+				if (!pos.capture_or_promotion(ttMove))
+				{
+					int penalty = -stat_bonus(depth);
+					thisThread->mainHistory[us][from_to(ttMove)] << penalty;
+					update_continuation_histories(ss, pos.moved_piece(ttMove), to_sq(ttMove), penalty);
+				}
+			return alpha;
+		}
+	}
+	
+	
     // Step 5. Tablebases probe
     if (!rootNode && TB::Cardinality)
     {
@@ -914,7 +963,7 @@ namespace {
 
         pos.do_null_move(st);
 
-        Value nullValue = -search<NonPV>(pos, ss+1, -beta, -beta+1, depth-R, !cutNode);
+        Value nullValue = -search<NonPV>(pos, ss+1, -beta, -beta+1, depth-R, !cutNode, windowSet, -eBeta, -eAlpha);
 
         pos.undo_null_move();
 
@@ -934,7 +983,7 @@ namespace {
             thisThread->nmpMinPly = ss->ply + 3 * (depth-R) / (4 * ONE_PLY);
             thisThread->nmpColor = us;
 
-            Value v = search<NonPV>(pos, ss, beta-1, beta, depth-R, false);
+            Value v = search<NonPV>(pos, ss, beta-1, beta, depth-R, false, windowSet,eAlpha, eBeta);
 
             thisThread->nmpMinPly = 0;
 
@@ -972,7 +1021,7 @@ namespace {
 
                 // If the qsearch held, perform the regular search
                 if (value >= raisedBeta)
-                    value = -search<NonPV>(pos, ss+1, -raisedBeta, -raisedBeta+1, depth - 4 * ONE_PLY, !cutNode);
+                    value = -search<NonPV>(pos, ss+1, -raisedBeta, -raisedBeta+1, depth - 4 * ONE_PLY, !cutNode, windowSet, -eBeta, -eAlpha);
 
                 pos.undo_move(move);
 
@@ -984,7 +1033,7 @@ namespace {
     // Step 11. Internal iterative deepening (~2 Elo)
     if (depth >= 8 * ONE_PLY && !ttMove)
     {
-        search<NT>(pos, ss, alpha, beta, depth - 7 * ONE_PLY, cutNode);
+        search<NT>(pos, ss, alpha, beta, depth - 7 * ONE_PLY, cutNode, windowSet, eAlpha, eBeta);
 
         tte = TT.probe(posKey, ttHit);
         ttValue = ttHit ? value_from_tt(tte->value(), ss->ply) : VALUE_NONE;
@@ -1061,7 +1110,7 @@ moves_loop: // When in check, search starts from here
           Value singularBeta = ttValue - 2 * depth / ONE_PLY;
           Depth halfDepth = depth / (2 * ONE_PLY) * ONE_PLY; // ONE_PLY invariant
           ss->excludedMove = move;
-          value = search<NonPV>(pos, ss, singularBeta - 1, singularBeta, halfDepth, cutNode);
+          value = search<NonPV>(pos, ss, singularBeta - 1, singularBeta, halfDepth, cutNode, windowSet, eAlpha, eBeta);
           ss->excludedMove = MOVE_NONE;
 
           if (value < singularBeta)
@@ -1074,8 +1123,9 @@ moves_loop: // When in check, search starts from here
         	  singularLMR++;
               }
 	      //from Kelly begin
-	      if (expTTHit && move == expTTMove)
+	      if (windowSet && move == SEmove)
 	      {
+			  
 		  isSingularExtension = true;
 	      }
 	      //from Kelly end
@@ -1110,6 +1160,12 @@ moves_loop: // When in check, search starts from here
                && pos.advanced_pawn_push(move)
                && pos.pawn_passed(us, to_sq(move)))
           extension = ONE_PLY;
+		  
+	  if(!extension && windowSet && move == SEmove)
+	  {
+		  //thisThread->tbHits.fetch_add(1, std::memory_order_relaxed);
+		  extension = ONE_PLY;
+	  }
 
       // Calculate new depth for this move
       newDepth = depth - ONE_PLY + extension;
@@ -1132,10 +1188,10 @@ moves_loop: // When in check, search starts from here
 		{
                   continue;
 		}
-	      	if (isSingularExtension && moveCount > 1)
-	      	  {
-	      	    continue;
-		  }
+	      //	if (isSingularExtension && moveCount > 1)
+	      //	{
+	      	//    continue;
+		  //}
 		//from Kelly end
 			  
               // Reduced depth of the next LMR search
@@ -1236,7 +1292,7 @@ moves_loop: // When in check, search starts from here
 
           Depth d = clamp(newDepth - r, ONE_PLY, newDepth);
 
-          value = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, d, true);
+          value = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, d, true, windowSet, -eBeta, -eAlpha);
 
           doFullDepthSearch = (value > alpha && d != newDepth);
       }
@@ -1245,7 +1301,7 @@ moves_loop: // When in check, search starts from here
 
       // Step 17. Full depth search when LMR is skipped or fails high
       if (doFullDepthSearch)
-          value = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, newDepth, !cutNode);
+          value = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, newDepth, !cutNode, windowSet, -eBeta, -eAlpha);
 
       // For PV nodes only, do a full PV search on the first move or after a fail
       // high (in the latter case search only if value < beta), otherwise let the
@@ -1255,7 +1311,7 @@ moves_loop: // When in check, search starts from here
           (ss+1)->pv = pv;
           (ss+1)->pv[0] = MOVE_NONE;
 
-          value = -search<PV>(pos, ss+1, -beta, -alpha, newDepth, false);
+          value = -search<PV>(pos, ss+1, -beta, -alpha, newDepth, false, windowSet,  -eBeta, -eAlpha);
       }
 
       // Step 18. Undo move
@@ -1318,7 +1374,7 @@ moves_loop: // When in check, search starts from here
                   assert(value >= beta); // Fail high
                   ss->statScore = 0;
                   break;
-              }
+              }				  
           }
       }
 
@@ -1378,7 +1434,6 @@ moves_loop: // When in check, search starts from here
                   bestValue >= beta ? BOUND_LOWER :
                   PvNode && bestMove ? BOUND_EXACT : BOUND_UPPER,
                   depth, bestMove, ss->staticEval);
-
     assert(bestValue > -VALUE_INFINITE && bestValue < VALUE_INFINITE);
 
     return bestValue;
