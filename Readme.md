@@ -18,7 +18,7 @@ BrainLearn hash the same options as BrainFish, but it implement a persisted lear
 - experience.bin with the learning for
   - opening variation of max 16 moves (8 half-moves) and a total of at least 7 pieces (no pawns) for white and black
   - positions with max 6 pieces (no pawns) for white and black
-- One or many .bin files, each one associated to a single position biunivocally associated to the (technically, hashKey), in an opening variation of max 16 moves (8 half-moves) and a total of at least 7 pieces (no pawns) for white and black. This position is also in the experience.bin. So, these files are to speed the load in memory.
+- One or many .bin files, each one associated to a single position biunivocally associated to the (technically, hashKey), in an opening variation of max 8 moves (16 half-moves) and a total of at least 7 pieces (no pawns) for white and black. This position is also in the experience.bin. So, these files are to speed the load in memory.
 
 Every .bin file is so a collection of one or more positions stored with the following format (similar to in memory Stockfish Transposition Table):
 
